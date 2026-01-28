@@ -43,7 +43,7 @@ dataset:
 
   # Subgroup 균형 샘플링
   use_balance_sampling: false       # Subgroup 내 Real/Fake 균형 (기존)
-  use_subgroup_balance: true        # Subgroup 간 균형 (Dataset-level)
+  use_subgroup_balance: false        # Subgroup 간 균형 (Dataset-level)
   use_subgroup_sampler: true        # Batch-level subgroup 균형
   skip_unknown_attributes: false
 
@@ -61,7 +61,7 @@ training:
 # ==================== Optimizer Configuration ====================
 optimizer:
   type: "adamw"
-  lr: 0.0001          # 1e-4
+  lr: 0.0003          # 3e-4 (튜닝: 1e-4 → 3e-4)
   weight_decay: 0.01
   betas: [0.9, 0.999]
   eps: 1.0e-8
@@ -75,7 +75,7 @@ scheduler:
   eta_min: 1.0e-6     # 최소 learning rate
 
   # WarmupCosine 옵션
-  warmup_epochs: 2    # Variant1: 1 → 2
+  warmup_epochs: 3    # 튜닝: 2 → 3 (데이터 증가에 따른 warmup 강화)
 
 # ==================== Loss Configuration ====================
 loss:
@@ -101,7 +101,7 @@ loss_weighting:
   init_log_var_fair: 0.0   # 초기 log variance for fairness
   # Fixed weighting 옵션 (type이 fixed일 때)
   lambda_cls: 1.0
-  lambda_fair: 0.1
+  lambda_fair: 0.05   # 튜닝: 0.1 → 0.05 (Detection-Fairness 균형)
 
 # Gradient Clipping
 gradient_clip_max_norm: 1.0
@@ -109,7 +109,7 @@ gradient_clip_max_norm: 1.0
 # ==================== Logging Configuration ====================
 logging:
   log_dir: "/workspace/code/CLIP_stage2/logs"
-  experiment_name: "stage2_v1_fixed_warmup"  # Variant1: 실험 구분
+  experiment_name: "stage2_tune_fair005"  # λ_fair=0.05 튜닝 실험
   print_freq: 50
   save_freq: 1
 
