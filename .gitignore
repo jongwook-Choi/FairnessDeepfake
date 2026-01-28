@@ -32,3 +32,10 @@ __pycache__/
 
 # .gitignore 자체는 포함
 !.gitignore
+
+# CLAUDE.md 포함
+!CLAUDE.md
+
+# .claude 폴더 포함
+!.claude/
+!.claude/**

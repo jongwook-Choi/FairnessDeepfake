@@ -1,0 +1,40 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Read(//workspace/datasets/meta_data/**)",
+      "Read(//workspace/code_ref/Fairness-Generalization/training/**)",
+      "Read(//workspace/logs/cross_dataset_lw_results/**)",
+      "Bash(awk:*)",
+      "Bash(xargs cat:*)",
+      "Read(//workspace/code_ref/SLADD/**)",
+      "Bash(find:*)",
+      "Read(//workspace/code_ref/SelfBlendedImages/**)",
+      "Read(//workspace/code_ref/task_singular_vectors/src/models/**)",
+      "Read(//workspace/code_ref/task_singular_vectors/src/utils/**)",
+      "Read(//workspace/logs/fairness_cross_dataset_results/20251009_122558_baseline/**)",
+      "Read(//workspace/logs/fairness_cross_dataset_results/20251009_164746_remove_gender-1.0/**)",
+      "Read(//workspace/logs/fairness_cross_dataset_results/20251009_165755_remove_gender-0.5/**)",
+      "Read(//workspace/logs/fairness_cross_dataset_results/20251009_215412_remove_race-1.0/**)",
+      "Read(//workspace/logs/fairness_cross_dataset_results/20251009_232942_remove_race-0.5/**)",
+      "Read(//workspace/logs/fairness_cross_dataset_results/20251010_110018_intersection_g0.5_r0.5-1.0/**)",
+      "Read(//workspace/code_ref/Fairness-Generalization/**)",
+      "Read(//workspace/logs/fairness_cross_dataset_results/20251016_204125/**)",
+      "Read(//workspace/datasets/fairness/ff++/**)",
+      "Read(//workspace/datasets/fairness/dfd/**)",
+      "Read(//workspace/datasets/fairness/celebdf/**)",
+      "Read(//workspace/logs/fairness_unified/20251014_200126/**)",
+      "Read(//workspace/logs/fairness_unified/20251014_200109/**)",
+      "Read(//workspace/logs/fairness_cross_dataset_results/20251104_154617/**)",
+      "Bash(gh auth login:*)",
+      "Bash(git init:*)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(git config:*)"
+    ]
+  },
+  "outputStyle": "korean-formal-concise"
+}
