@@ -1,0 +1,32 @@
+# Stage 2 Test Configuration
+# Cross-dataset + Fairness 평가 설정
+
+# ==================== Model Configuration ====================
+model:
+  clip_name: "ViT-L/14"
+  feature_dim: 768
+  adapter_hidden_dim: 512
+  classifier_hidden_dims: [384, 192]
+  num_classes: 2
+  dropout: 0.1
+  normalize_features: true
+
+# ==================== Dataset Configuration ====================
+fairness_root: "/workspace/datasets/fairness"
+test_datasets: ["ff++", "celebdf", "dfd", "dfdc"]
+resolution: 256
+
+# Data normalization
+mean: [0.485, 0.456, 0.406]
+std: [0.229, 0.224, 0.225]
+
+# ==================== Evaluation Configuration ====================
+test_batch_size: 64
+num_workers: 4
+
+# ==================== Output Configuration ====================
+result_dir: "/workspace/code/CLIP_stage2/results"
+
+# ==================== Hardware Configuration ====================
+device: "cuda"
+clip_download_root: "/data/cuixinjie/weights"

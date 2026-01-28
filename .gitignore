@@ -1,0 +1,34 @@
+# 모든 파일/폴더 기본 제외
+*
+
+# 포함할 폴더들만 허용
+!CLIP_stage1/
+!CLIP_stage1/**
+!CLIP_stage1_txt/
+!CLIP_stage1_txt/**
+!CLIP_stage2/
+!CLIP_stage2/**
+!CLIP_stage2txt/
+!CLIP_stage2txt/**
+
+# logs 폴더 제외 (가중치 파일)
+**/logs/
+CLIP_stage1/logs/
+CLIP_stage1_txt/logs/
+CLIP_stage2/logs/
+CLIP_stage2txt/logs/
+
+# 일반적인 제외 항목
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+*.egg
+.DS_Store
+*.swp
+*.swo
+*~
+
+# .gitignore 자체는 포함
+!.gitignore

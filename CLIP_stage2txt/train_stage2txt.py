@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+"""
+Stage 2 TXT Linear Probing 학습 스크립트
+
+CLIP + Additive Adapter (Stage 1_txt 가중치, frozen) + Binary Classifier (trainable)
+Stage 1_txt에서 학습된 Text Anchors도 함께 로드
+Deepfake Detection을 위한 Linear Probing 수행
+
+Usage:
+    python train_stage2txt.py --config config/train_stage2txt.yaml
+    python train_stage2txt.py --config config/train_stage2txt.yaml --stage1txt-checkpoint /path/to/stage1txt.pth
+"""
+
+import os
+import sys
+import argparse
+import yaml
+import torch
+
+# 프로젝트 루트 경로 추가
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from trainer.stage2txt_trainer import Stage2TxtTrainer
+
+
+def parse_args():
+    """명령행 인자 파싱"""
+    parser = argparse.ArgumentParser(description='Stage 2 TXT Linear Probing Training')
+
+    parser.add_argument('--config', type=str,
+                        default='config/train_stage2txt.yaml',
+                        help='Path to config file')
+
+    parser.add_argument('--stage1txt-checkpoint', type=str, default=None,
+                        help='Path to Stage 1_txt checkpoint (overrides config)')
+
+    parser.add_argument('--freeze-adapter', type=bool, default=None,
+                        help='Freeze adapter (True: Linear Probing, False: Fine-tuning)')
+
+    parser.add_argument('--lr', type=float, default=None,
+                        help='Learning rate (overrides config)')
+
+    parser.add_argument('--epochs', type=int, default=None,
+                        help='Number of epochs (overrides config)')
+
+    parser.add_argument('--batch-size', type=int, default=None,
+                        help='Batch size (overrides config)')
+
+    parser.add_argument('--train-dataset', type=str, nargs='+', default=None,
+                        help='Training dataset(s) (overrides config)')
+
+    parser.add_argument('--log-dir', type=str, default=None,
+                        help='Log directory (overrides config)')
+
+    parser.add_argument('--experiment-name', type=str, default=None,
+                        help='Experiment name (overrides config)')
+
+    parser.add_argument('--device', type=str, default=None,
+                        help='Device (cuda or cpu)')
+
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Random seed')
+
+    return parser.parse_args()
+
+
+def load_config(config_path):
+    """설정 파일 로드"""
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
+
+    return config
+
+
+def update_config_from_args(config, args):
+    """명령행 인자로 설정 업데이트"""
+
+    # Stage 1_txt Checkpoint
+    if args.stage1txt_checkpoint is not None:
+        config['stage1txt_checkpoint'] = args.stage1txt_checkpoint
+
+    # Freeze Adapter
+    if args.freeze_adapter is not None:
+        config['freeze_adapter'] = args.freeze_adapter
+
+    # Learning Rate
+    if args.lr is not None:
+        if 'optimizer' not in config:
+            config['optimizer'] = {}
+        config['optimizer']['lr'] = args.lr
+
+    # Epochs
+    if args.epochs is not None:
+        if 'training' not in config:
+            config['training'] = {}
+        config['training']['num_epochs'] = args.epochs
+
+    # Batch Size
+    if args.batch_size is not None:
+        if 'training' not in config:
+            config['training'] = {}
+        config['training']['train_batch_size'] = args.batch_size
+        config['training']['val_batch_size'] = args.batch_size
+
+    # Train Dataset
+    if args.train_dataset is not None:
+        if 'dataset' not in config:
+            config['dataset'] = {}
+        config['dataset']['train_dataset'] = args.train_dataset
+
+    # Log Directory
+    if args.log_dir is not None:
+        if 'logging' not in config:
+            config['logging'] = {}
+        config['logging']['log_dir'] = args.log_dir
+
+    # Experiment Name
+    if args.experiment_name is not None:
+        if 'logging' not in config:
+            config['logging'] = {}
+        config['logging']['experiment_name'] = args.experiment_name
+
+    # Device
+    if args.device is not None:
+        config['device'] = args.device
+
+    # Seed
+    if args.seed is not None:
+        config['seed'] = args.seed
+
+    return config
+
+
+def print_config(config):
+    """설정 출력"""
+    print("\n" + "=" * 60)
+    print("Stage 2 TXT Linear Probing Configuration")
+    print("=" * 60)
+
+    # Model
+    model_config = config.get('model', {})
+    print(f"\n[Model]")
+    print(f"  CLIP Model: {model_config.get('clip_name', 'ViT-L/14')}")
+    print(f"  Feature Dim: {model_config.get('feature_dim', 768)}")
+    print(f"  Num Subgroups: {model_config.get('num_subgroups', 8)}")
+    print(f"  Classifier: {model_config.get('classifier_hidden_dims', [384, 192])}")
+
+    # Stage 1_txt
+    print(f"\n[Stage 1_txt]")
+    print(f"  Checkpoint: {config.get('stage1txt_checkpoint', 'None')}")
+    print(f"  Freeze Adapter: {config.get('freeze_adapter', True)}")
+
+    # Dataset
+    dataset_config = config.get('dataset', {})
+    print(f"\n[Dataset]")
+    print(f"  Train: {dataset_config.get('train_dataset', ['ff++'])}")
+    print(f"  Val: {dataset_config.get('validation_dataset', ['ff++'])}")
+    print(f"  Resolution: {dataset_config.get('resolution', 256)}")
+
+    # Training
+    training_config = config.get('training', {})
+    optimizer_config = config.get('optimizer', {})
+    print(f"\n[Training]")
+    print(f"  Epochs: {training_config.get('num_epochs', 10)}")
+    print(f"  Batch Size: {training_config.get('train_batch_size', 64)}")
+    print(f"  Optimizer: {optimizer_config.get('type', 'adamw')}")
+    print(f"  Learning Rate: {optimizer_config.get('lr', 0.001)}")
+
+    # Logging
+    logging_config = config.get('logging', {})
+    print(f"\n[Logging]")
+    print(f"  Log Dir: {logging_config.get('log_dir', 'logs')}")
+    print(f"  Experiment: {logging_config.get('experiment_name', 'stage2txt')}")
+
+    print("=" * 60 + "\n")
+
+
+def main():
+    """메인 함수"""
+    args = parse_args()
+
+    # 설정 로드
+    config = load_config(args.config)
+
+    # 명령행 인자로 설정 업데이트
+    config = update_config_from_args(config, args)
+
+    # 설정 출력
+    print_config(config)
+
+    # Stage 1_txt 체크포인트 확인
+    stage1txt_checkpoint = config.get('stage1txt_checkpoint')
+    if stage1txt_checkpoint and not os.path.exists(stage1txt_checkpoint):
+        print(f"Warning: Stage 1_txt checkpoint not found: {stage1txt_checkpoint}")
+        print("Proceeding with randomly initialized Adapter weights (no Text Anchors)...")
+
+    # Trainer 생성 및 학습
+    trainer = Stage2TxtTrainer(config)
+
+    try:
+        best_metric = trainer.train()
+        print(f"\nTraining completed! Best metric: {best_metric:.4f}")
+        return 0
+
+    except KeyboardInterrupt:
+        print("\nTraining interrupted by user.")
+        return 1
+
+    except Exception as e:
+        print(f"\nTraining failed with error: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+if __name__ == "__main__":
+    exit(main())

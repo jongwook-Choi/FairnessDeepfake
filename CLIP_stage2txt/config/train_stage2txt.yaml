@@ -1,0 +1,94 @@
+# Stage 2 TXT Linear Probing Configuration
+# CLIP + Additive Adapter (Stage 1_txt 가중치, frozen) + Binary Classifier (trainable)
+# Stage1_txt에서 학습된 Text Anchors도 함께 로드
+
+# ==================== Model Configuration ====================
+model:
+  clip_name: "ViT-L/14"
+  feature_dim: 768
+  adapter_hidden_dim: 512
+  classifier_hidden_dims: [384, 192]
+  num_classes: 2
+  num_subgroups: 8  # gender × race = 2 × 4
+  dropout: 0.1
+  normalize_features: true
+
+# Stage 1_txt Checkpoint (Additive Adapter + Text Anchors 가중치)
+stage1txt_checkpoint: "/workspace/code/CLIP_stage1_txt/logs/stage1_txt_2026-01-20-17-18-55/checkpoint_best.pth"
+freeze_adapter: true  # true: Linear Probing, false: Fine-tuning
+
+# ==================== Dataset Configuration ====================
+dataset:
+  fairness_root: "/workspace/datasets/fairness"
+  train_dataset: ["ff++"]
+  validation_dataset: ["ff++"]
+  test_dataset: ["celebdf", "dfd", "dfdc"]
+  resolution: 256
+  use_data_augmentation: true
+  # 균형 샘플링 옵션 (상호 배타적)
+  use_balance_sampling: false    # Subgroup 내 Real/Fake 균형 (기존)
+  use_subgroup_balance: true     # Subgroup 간 균형 (신규) - Dataset-level
+  use_subgroup_sampler: true     # Batch-level subgroup 균형 (신규)
+  skip_unknown_attributes: false
+
+# Data normalization (ImageNet default)
+mean: [0.485, 0.456, 0.406]
+std: [0.229, 0.224, 0.225]
+
+# ==================== Training Configuration ====================
+training:
+  num_epochs: 10
+  train_batch_size: 64
+  val_batch_size: 64
+  num_workers: 4
+
+# Optimizer Configuration
+optimizer:
+  type: "adamw"
+  lr: 0.001  # Classification head만 학습하므로 높은 LR
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+
+# Scheduler Configuration
+scheduler:
+  use_scheduler: true
+  name: "CosineAnnealingLR"  # StepLR, CosineAnnealingLR, WarmupCosine
+  # StepLR options
+  step_size: 5
+  gamma: 0.5
+  # WarmupCosine options
+  warmup_epochs: 1
+  min_lr: 1.0e-6
+
+# Loss Configuration
+loss:
+  type: "cross_entropy"  # cross_entropy, focal, bce
+  focal_alpha: 0.25
+  focal_gamma: 2.0
+  label_smoothing: 0.0
+  class_weights: null  # [1.0, 1.0] for balanced
+
+# Gradient Clipping
+gradient_clip_max_norm: 1.0
+
+# ==================== Logging Configuration ====================
+logging:
+  log_dir: "/workspace/code/CLIP_stage2txt/logs"
+  experiment_name: "stage2txt_linear_probing"
+  print_freq: 50
+  save_freq: 1  # Save checkpoint every N epochs
+
+# ==================== Evaluation Configuration ====================
+evaluation:
+  eval_freq: 1  # Evaluate every N epochs
+  save_best_only: true
+  metric_for_best: "auc"  # auc, acc, eer
+
+# ==================== Hardware Configuration ====================
+device: "cuda"
+seed: 42
+deterministic: true
+
+# CLIP weights download path
+clip_download_root: "/data/cuixinjie/weights"

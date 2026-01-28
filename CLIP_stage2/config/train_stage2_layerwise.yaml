@@ -1,0 +1,107 @@
+# Stage 2 Full Fine-tuning with Layerwise Learning Rate Decay Configuration
+# CLIP (unfrozen, layerwise LR) + Additive Adapter (unfrozen) + Binary Classifier (trainable)
+
+# ==================== Model Configuration ====================
+model:
+  clip_name: "ViT-L/14"
+  feature_dim: 768
+  adapter_hidden_dim: 512
+  classifier_hidden_dims: [384, 192]
+  num_classes: 2
+  dropout: 0.1
+  normalize_features: true
+
+# Stage 1 Checkpoint (Additive Adapter 가중치)
+stage1_checkpoint: "/workspace/code/CLIP_stage1/logs/stage1_2026-01-20-12-31-57/checkpoint_best.pth"
+
+# Full Fine-tuning: CLIP, Adapter 모두 학습
+freeze_clip: false
+freeze_adapter: false
+
+# ==================== Layerwise LR Decay Configuration ====================
+# LR 계산: layer_lr = head_lr * (layer_decay ^ decay_steps)
+# 예시 (layer_decay=0.65, head_lr=1e-4):
+#   Classifier: decay_steps=0 -> LR=1.00e-4
+#   Adapter Layer 2: decay_steps=1 -> LR=6.50e-5
+#   ...
+#   CLIP Layer 23: decay_steps=5 -> LR=1.16e-5
+#   CLIP Layer 0: decay_steps=28 -> LR=3.50e-9
+#   CLIP Embeddings: decay_steps=29 -> LR=2.28e-9
+layer_decay: 0.65
+head_lr: 0.0001
+
+# ==================== Dataset Configuration ====================
+dataset:
+  fairness_root: "/workspace/datasets/fairness"
+  train_dataset: ["ff++"]
+  validation_dataset: ["ff++"]
+  test_dataset: ["celebdf", "dfd", "dfdc"]
+  resolution: 256
+  use_data_augmentation: true
+  # 균형 샘플링 옵션 (상호 배타적)
+  use_balance_sampling: false    # Subgroup 내 Real/Fake 균형 (기존)
+  use_subgroup_balance: true     # Subgroup 간 균형 (신규) - Dataset-level
+  use_subgroup_sampler: true     # Batch-level subgroup 균형 (신규)
+  skip_unknown_attributes: false
+
+# Data normalization (ImageNet default)
+mean: [0.485, 0.456, 0.406]
+std: [0.229, 0.224, 0.225]
+
+# ==================== Training Configuration ====================
+training:
+  num_epochs: 10
+  train_batch_size: 64  # Full fine-tuning으로 메모리 사용량 증가
+  val_batch_size: 16
+  num_workers: 4
+
+# Optimizer Configuration
+optimizer:
+  type: "adamw"
+  # lr은 head_lr로 대체됨 (layerwise LR decay에서 사용)
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+
+# Scheduler Configuration
+scheduler:
+  use_scheduler: true
+  name: "LayerWiseWarmupScheduler"  # LayerWiseWarmupScheduler, StepLR, CosineAnnealingLR
+  warmup_steps: 100  # LayerWiseWarmupScheduler용
+  # StepLR options
+  step_size: 5
+  gamma: 0.5
+  # CosineAnnealingLR options
+  min_lr: 1.0e-8
+
+# Loss Configuration
+loss:
+  type: "cross_entropy"  # cross_entropy, focal, bce
+  focal_alpha: 0.25
+  focal_gamma: 2.0
+  label_smoothing: 0.0
+  class_weights: null
+
+# Gradient Clipping
+gradient_clip_max_norm: 1.0
+
+# ==================== Logging Configuration ====================
+logging:
+  log_dir: "/workspace/code/CLIP_stage2/logs"
+  experiment_name: "stage2_full_finetuning_lw"
+  print_freq: 50
+  save_freq: 1
+
+# ==================== Evaluation Configuration ====================
+evaluation:
+  eval_freq: 1
+  save_best_only: true
+  metric_for_best: "auc"
+
+# ==================== Hardware Configuration ====================
+device: "cuda"
+seed: 42
+deterministic: true
+
+# CLIP weights download path
+clip_download_root: "/data/cuixinjie/weights"

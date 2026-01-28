@@ -1,0 +1,114 @@
+# CLIP Stage1 Text Training Configuration
+# FairFace, UTKFace, CausalFace를 활용한 CLIP pre-train weight의 Global bias 제거
+# Text Encoder를 활용한 Fairness Anchor 학습
+
+# =============================================================================
+# Model Configuration
+# =============================================================================
+model:
+  clip_name: "ViT-L/14"              # CLIP 모델 이름
+  adapter_hidden_dim: 512            # Adapter hidden 차원
+  feature_dim: 768                   # CLIP feature 차원 (ViT-L/14: 768)
+  num_races: 4                       # 인종 클래스 수 (Asian, Black, White, Other)
+  num_genders: 2                     # 성별 클래스 수 (Male, Female)
+  num_subgroups: 8                   # Subgroup 수 (gender * 4 + race)
+  num_prompts_per_subgroup: 6        # 각 subgroup당 프롬프트 수
+  dropout: 0.1                       # Dropout 비율
+  normalize_features: true           # Feature normalization 여부
+  clip_download_root: "/data/cuixinjie/weights"  # CLIP 가중치 경로
+
+# =============================================================================
+# Text Configuration (신규)
+# =============================================================================
+text:
+  prompt_type: "demographic"         # 프롬프트 타입 (demographic: Real/Fake 구분 없음)
+  num_prompts_per_subgroup: 6        # 각 subgroup당 프롬프트 수
+  cache_text_features: true          # Text features 캐싱 여부
+
+# =============================================================================
+# Dataset Configuration
+# =============================================================================
+dataset:
+  # 데이터셋 경로 (Stage1: Global bias 제거용)
+  fairface_root: "/workspace/datasets/fairface"
+  utkface_root: "/workspace/datasets/UTKFace"
+  causalface_root: "/workspace/datasets/CausalFace"
+  ffpp_root: "/workspace/datasets/fairness/ff++"
+
+  # Train 데이터셋 (FairFace, UTKFace, CausalFace)
+  train_datasets:
+    - fairface
+    - utkface
+    - causalface
+
+  # Validation에 FF++ 사용 여부
+  use_ffpp_for_validation: true
+
+  resolution: 224                    # 입력 이미지 해상도
+  use_data_augmentation: true        # 데이터 증강 사용 여부
+  use_balance_sampling: true         # Subgroup 균형 샘플링 사용 여부
+  max_samples_per_subgroup: 0        # 0 = 최소 subgroup 크기 기준, >0 = 지정된 수로 제한
+
+  # CLIP normalization (기본값)
+  mean: [0.48145466, 0.4578275, 0.40821073]
+  std: [0.26862954, 0.26130258, 0.27577711]
+
+# =============================================================================
+# Loss Configuration (Text loss 추가)
+# =============================================================================
+loss:
+  lambda_race: 1.0                   # Race loss 가중치
+  lambda_gender: 0.1                 # Gender loss 가중치
+  lambda_fairness: 0.5               # Fairness loss 가중치 (Sinkhorn)
+  lambda_pairwise_fairness: 0.5      # Pairwise Fairness loss 가중치
+  lambda_text_align: 0.1             # Text-Visual Alignment loss 가중치 (신규)
+  lambda_text_consist: 0.01          # Text Consistency loss 가중치 (신규)
+  sinkhorn_blur: 0.0001              # Sinkhorn blur 파라미터
+  label_smoothing: 0.0               # Label smoothing
+  consistency_loss_type: "pairwise"  # Text Consistency loss 타입 (pairwise, variance)
+
+# =============================================================================
+# Training Configuration
+# =============================================================================
+training:
+  num_epochs: 10                     # 학습 에포크 수
+  batch_size: 64                     # 배치 크기 (8의 배수 권장)
+  num_workers: 4                     # DataLoader worker 수
+  use_amp: false                     # Mixed precision 사용 여부
+
+  # Best model 선택 점수 가중치
+  # combined_score = w_race*race_acc + w_gender*gender_acc
+  #                + w_cosine*cosine_sim + w_text_sim*text_visual_sim
+  #                - w_var*variance_ratio
+  weight_race_acc: 1.0               # Race accuracy 가중치 (높을수록 좋음)
+  weight_gender_acc: 0.1             # Gender accuracy 가중치 (CLIP이 이미 잘 학습함)
+  weight_cosine_sim: 1.0             # Cosine similarity 가중치 (높을수록 좋음, subgroup 방향 정렬)
+  weight_text_visual_sim: 0.5        # Text-Visual similarity 가중치 (높을수록 좋음, text anchor 정렬)
+  weight_variance_ratio: 0.5         # Variance ratio 가중치 (낮을수록 좋음, subgroup 분포 균등)
+
+  # Optimizer
+  optimizer:
+    type: "adamw"                    # optimizer 타입 (adam, adamw, sgd)
+    lr: 0.001                        # 학습률
+    weight_decay: 0.0001             # Weight decay
+    betas: [0.9, 0.999]              # Adam betas
+
+  # Scheduler
+  scheduler:
+    type: "cosine"                   # scheduler 타입 (cosine, step, none)
+    T_max: 10                        # CosineAnnealing T_max
+    eta_min: 0.00001                 # CosineAnnealing 최소 lr
+
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+logging:
+  log_dir: "/workspace/code/CLIP_stage1_txt/logs"  # 로그 디렉토리
+  save_every_epoch: false            # 매 에포크마다 체크포인트 저장
+  log_interval: 100                  # 로깅 간격 (iterations)
+
+# =============================================================================
+# Device Configuration
+# =============================================================================
+device: "cuda"                       # 학습 device
+seed: 42                             # Random seed
