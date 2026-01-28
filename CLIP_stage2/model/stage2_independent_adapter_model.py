@@ -143,6 +143,7 @@ class Stage2IndependentAdapterModel(nn.Module):
         # Metric 추적용 변수
         self.prob = []
         self.label = []
+        self.subgroups = []  # 공정성 메트릭 계산을 위한 subgroup 저장
 
         # Loss function (외부에서 설정 가능)
         self.loss_fn = nn.CrossEntropyLoss()
@@ -338,6 +339,9 @@ class Stage2IndependentAdapterModel(nn.Module):
         if inference:
             self.prob.append(pred_dict['prob'].detach().cpu())
             self.label.append(data_dict['label'].detach().cpu())
+            # 공정성 메트릭 계산을 위한 subgroup 저장
+            if 'subgroup' in data_dict:
+                self.subgroups.append(data_dict['subgroup'].detach().cpu())
 
         return pred_dict
 
@@ -379,6 +383,7 @@ class Stage2IndependentAdapterModel(nn.Module):
         # Reset
         self.prob = []
         self.label = []
+        self.subgroups = []
 
         # AUC
         try:
@@ -411,6 +416,38 @@ class Stage2IndependentAdapterModel(nn.Module):
             'acc': acc,
             'eer': eer,
             'ap': ap,
+        }
+
+    def get_fairness_metrics(self):
+        """
+        공정성 메트릭 계산 (F_FPR, F_OAE, F_DP, F_MEO)
+
+        Returns:
+            dict: 공정성 메트릭 딕셔너리 또는 None (subgroup 정보 없을 시)
+        """
+        if len(self.prob) == 0 or len(self.label) == 0 or len(self.subgroups) == 0:
+            return None
+
+        from utils.fairness_metrics import compute_fairness_metrics
+
+        probs = torch.cat(self.prob).numpy()
+        labels = torch.cat(self.label).numpy()
+        subgroups = torch.cat(self.subgroups).numpy()
+
+        # 공정성 메트릭 계산
+        fairness_results = compute_fairness_metrics(probs, labels, subgroups)
+
+        if 'error' in fairness_results:
+            return None
+
+        return {
+            'F_FPR': fairness_results.get('F_FPR', 0.0),
+            'F_OAE': fairness_results.get('F_OAE', 0.0),
+            'F_DP': fairness_results.get('F_DP', 0.0),
+            'F_MEO': fairness_results.get('F_MEO', 0.0),
+            'num_subgroups': fairness_results.get('num_subgroups', 0),
+            'avg_fpr': fairness_results.get('avg_fpr', 0.0),
+            'avg_acc': fairness_results.get('avg_acc', 0.0),
         }
 
     def get_trainable_params(self):

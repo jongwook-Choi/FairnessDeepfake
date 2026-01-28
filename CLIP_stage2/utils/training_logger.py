@@ -36,6 +36,7 @@ class TrainingLogger:
             'config_log': os.path.join(log_dir, f'{experiment_name}_config_{timestamp}.json'),
             'metrics_csv': os.path.join(log_dir, f'{experiment_name}_metrics_{timestamp}.csv'),
             'test_metrics_csv': os.path.join(log_dir, f'{experiment_name}_test_metrics_{timestamp}.csv'),
+            'fairness_metrics_csv': os.path.join(log_dir, f'{experiment_name}_fairness_metrics_{timestamp}.csv'),
             'summary_log': os.path.join(log_dir, f'{experiment_name}_summary_{timestamp}.txt'),
             'error_log': os.path.join(log_dir, f'{experiment_name}_errors_{timestamp}.log')
         }
@@ -76,6 +77,7 @@ class TrainingLogger:
         # 메트릭 저장을 위한 리스트
         self.epoch_metrics = []
         self.test_metrics = []  # 테스트 데이터셋별 메트릭
+        self.fairness_metrics = []  # 공정성 메트릭
 
         self.logger.info(f"Training logger initialized for {experiment_name}")
         self.logger.info(f"Log directory: {log_dir}")
@@ -284,6 +286,50 @@ class TrainingLogger:
                 if isinstance(value, (int, float)):
                     self.logger.info(f"  {key}: {value}")
 
+    def log_fairness_metrics(self, epoch: int, fairness_metrics: Dict[str, float],
+                              dataset_name: str = 'validation'):
+        """공정성 메트릭 로깅
+
+        Args:
+            epoch: 현재 에포크
+            fairness_metrics: 공정성 메트릭 딕셔너리 (F_FPR, F_OAE, F_DP, F_MEO 등)
+            dataset_name: 데이터셋 이름 (validation, celebdf 등)
+        """
+        self.logger.info(f"  Fairness [{dataset_name}] - "
+                        f"F_FPR: {fairness_metrics.get('F_FPR', 0):.2f}%, "
+                        f"F_OAE: {fairness_metrics.get('F_OAE', 0):.2f}%, "
+                        f"F_DP: {fairness_metrics.get('F_DP', 0):.2f}%, "
+                        f"F_MEO: {fairness_metrics.get('F_MEO', 0):.2f}%")
+
+        # 공정성 메트릭 저장
+        fairness_data = {
+            'epoch': epoch,
+            'dataset': dataset_name,
+            'F_FPR': fairness_metrics.get('F_FPR', 0),
+            'F_OAE': fairness_metrics.get('F_OAE', 0),
+            'F_DP': fairness_metrics.get('F_DP', 0),
+            'F_MEO': fairness_metrics.get('F_MEO', 0),
+            'num_subgroups': fairness_metrics.get('num_subgroups', 0),
+            'avg_fpr': fairness_metrics.get('avg_fpr', 0),
+            'avg_acc': fairness_metrics.get('avg_acc', 0),
+            'timestamp': datetime.datetime.now().isoformat()
+        }
+        self.fairness_metrics.append(fairness_data)
+        self._save_fairness_metrics_csv()
+
+    def _save_fairness_metrics_csv(self):
+        """공정성 메트릭을 CSV 파일로 저장"""
+        if not self.fairness_metrics:
+            return
+
+        fieldnames = ['epoch', 'dataset', 'F_FPR', 'F_OAE', 'F_DP', 'F_MEO',
+                     'num_subgroups', 'avg_fpr', 'avg_acc', 'timestamp']
+
+        with open(self.log_files['fairness_metrics_csv'], 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(self.fairness_metrics)
+
     def log_test_dataset_results(self, epoch: int, dataset_name: str,
                                   metrics: Dict[str, float]):
         """테스트 데이터셋별 결과 로깅
@@ -291,7 +337,7 @@ class TrainingLogger:
         Args:
             epoch: 현재 에포크
             dataset_name: 테스트 데이터셋 이름 (celebdf, dfd, dfdc 등)
-            metrics: 평가 메트릭 딕셔너리 (auc, acc, eer, ap, num_samples 등)
+            metrics: 평가 메트릭 딕셔너리 (auc, acc, eer, ap, num_samples, fairness 등)
         """
         self.logger.info(f"  Test [{dataset_name}] - AUC: {metrics.get('auc', 0):.4f}, "
                         f"ACC: {metrics.get('acc', 0):.4f}, "
@@ -311,6 +357,10 @@ class TrainingLogger:
         }
         self.test_metrics.append(test_data)
         self._save_test_metrics_csv()
+
+        # 공정성 메트릭이 있으면 함께 로깅
+        if 'fairness' in metrics and metrics['fairness'] is not None:
+            self.log_fairness_metrics(epoch, metrics['fairness'], dataset_name)
 
     def _save_test_metrics_csv(self):
         """테스트 메트릭을 CSV 파일로 저장"""
@@ -390,6 +440,26 @@ class TrainingLogger:
                     f"EER={tm['eer']:.4f}, AP={tm['ap']:.4f}"
                 )
 
+        # 공정성 메트릭 결과 추가
+        if self.fairness_metrics:
+            summary.extend([
+                "",
+                "Fairness Metrics (Latest):",
+                "-" * 40
+            ])
+
+            # 최신 validation 공정성 메트릭
+            latest_fairness = {}
+            for fm in self.fairness_metrics:
+                ds_name = fm['dataset']
+                latest_fairness[ds_name] = fm
+
+            for ds_name, fm in latest_fairness.items():
+                summary.append(
+                    f"  {ds_name:12s}: F_FPR={fm['F_FPR']:.2f}%, F_OAE={fm['F_OAE']:.2f}%, "
+                    f"F_DP={fm['F_DP']:.2f}%, F_MEO={fm['F_MEO']:.2f}%"
+                )
+
         summary.extend([
             "",
             f"Log files saved in: {self.log_dir}",
@@ -397,6 +467,7 @@ class TrainingLogger:
             f"- Config log: {os.path.basename(self.log_files['config_log'])}",
             f"- Metrics CSV: {os.path.basename(self.log_files['metrics_csv'])}",
             f"- Test Metrics CSV: {os.path.basename(self.log_files['test_metrics_csv'])}",
+            f"- Fairness Metrics CSV: {os.path.basename(self.log_files['fairness_metrics_csv'])}",
             f"- Error log: {os.path.basename(self.log_files['error_log'])}",
             f"- Summary: {os.path.basename(self.log_files['summary_log'])}"
         ])

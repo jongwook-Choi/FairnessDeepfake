@@ -476,7 +476,7 @@ class Stage2IndependentAdapterTrainer:
         return train_stats
 
     def validate(self, val_loader):
-        """검증"""
+        """검증 (AUC, ACC + 공정성 메트릭)"""
         self.model.eval()
         total_loss = 0
 
@@ -493,9 +493,17 @@ class Stage2IndependentAdapterTrainer:
                 loss = self.cls_loss_fn(cls_logits, labels)
                 total_loss += loss.item()
 
+        # 기본 메트릭 (AUC, ACC, EER, AP) - 내부적으로 prob/label 리셋하지 않도록 먼저 fairness 계산
+        fairness_metrics = self.model.get_fairness_metrics()
+
+        # 기본 테스트 메트릭 (이 호출에서 prob/label/subgroups 리셋됨)
         metrics = self.model.get_test_metrics()
         avg_loss = total_loss / len(val_loader) if len(val_loader) > 0 else 0
         metrics['loss'] = avg_loss
+
+        # 공정성 메트릭 추가
+        if fairness_metrics is not None:
+            metrics['fairness'] = fairness_metrics
 
         return metrics
 
@@ -570,7 +578,7 @@ class Stage2IndependentAdapterTrainer:
             return None
 
     def _evaluate_single_dataset(self, dataloader: DataLoader, dataset_name: str) -> dict:
-        """단일 데이터셋 평가 (AUC, ACC, EER, AP)
+        """단일 데이터셋 평가 (AUC, ACC, EER, AP + 공정성 메트릭)
 
         Args:
             dataloader: 테스트 DataLoader
@@ -589,9 +597,16 @@ class Stage2IndependentAdapterTrainer:
 
                 _ = self.model(data_dict, inference=True)
 
-        # 모델의 테스트 메트릭 수집
+        # 공정성 메트릭 먼저 계산 (리셋 전)
+        fairness_metrics = self.model.get_fairness_metrics()
+
+        # 모델의 테스트 메트릭 수집 (이 호출에서 리셋됨)
         metrics = self.model.get_test_metrics()
         metrics['num_samples'] = len(dataloader.dataset)
+
+        # 공정성 메트릭 추가
+        if fairness_metrics is not None:
+            metrics['fairness'] = fairness_metrics
 
         return metrics
 
@@ -725,23 +740,47 @@ class Stage2IndependentAdapterTrainer:
             print(f"  Val   - AUC: {val_metrics['auc']:.4f}, "
                   f"ACC: {val_metrics['acc']:.4f}, "
                   f"EER: {val_metrics['eer']:.4f}")
+
+            # 공정성 메트릭 출력
+            if 'fairness' in val_metrics and val_metrics['fairness'] is not None:
+                fairness = val_metrics['fairness']
+                print(f"  Val Fairness:")
+                print(f"    F_FPR: {fairness.get('F_FPR', 0):.2f}%, "
+                      f"F_OAE: {fairness.get('F_OAE', 0):.2f}%, "
+                      f"F_DP: {fairness.get('F_DP', 0):.2f}%, "
+                      f"F_MEO: {fairness.get('F_MEO', 0):.2f}%")
+
             print(f"  Time: {elapsed_time:.1f}s, Best {metric_for_best.upper()}: {best_metric:.4f}")
 
             # CSV/Summary 로깅 - log_epoch_results 호출
+            val_metrics_for_log = {
+                'auc': val_metrics.get('auc', 0),
+                'acc': val_metrics.get('acc', 0),
+                'eer': val_metrics.get('eer', 0),
+                'ap': val_metrics.get('ap', 0)
+            }
+
+            # 공정성 메트릭 추가
+            if 'fairness' in val_metrics and val_metrics['fairness'] is not None:
+                fairness = val_metrics['fairness']
+                val_metrics_for_log['fairness_F_FPR'] = fairness.get('F_FPR', 0)
+                val_metrics_for_log['fairness_F_OAE'] = fairness.get('F_OAE', 0)
+                val_metrics_for_log['fairness_F_DP'] = fairness.get('F_DP', 0)
+                val_metrics_for_log['fairness_F_MEO'] = fairness.get('F_MEO', 0)
+
             self.logger.log_epoch_results(
                 epoch=epoch,
                 train_loss=train_stats['loss'],
                 train_acc=train_stats['accuracy'],
                 val_loss=val_metrics.get('loss', 0),
-                val_metrics={
-                    'auc': val_metrics.get('auc', 0),
-                    'acc': val_metrics.get('acc', 0),
-                    'eer': val_metrics.get('eer', 0),
-                    'ap': val_metrics.get('ap', 0)
-                },
+                val_metrics=val_metrics_for_log,
                 is_best=is_best,
                 elapsed_time=elapsed_time
             )
+
+            # 공정성 메트릭 별도 로깅
+            if 'fairness' in val_metrics and val_metrics['fairness'] is not None:
+                self.logger.log_fairness_metrics(epoch, val_metrics['fairness'], 'validation')
 
             if is_best:
                 print(f"  *** New best model! ***")
