@@ -41,7 +41,7 @@ class FairnessAdapter(nn.Module):
             clip_name (str): CLIP 모델 이름 ("ViT-L/14", "ViT-B/16" 등)
             adapter_hidden_dim (int): Adapter hidden 차원
             feature_dim (int): CLIP feature 차원 (ViT-L/14: 768, ViT-B/16: 512)
-            num_races (int): 인종 클래스 수 (Asian, Black, White, Other = 4)
+            num_races (int): 인종 클래스 수 (Asian, White, Black, Other = 4)
             num_genders (int): 성별 클래스 수 (Male, Female = 2)
             dropout (float): dropout 비율
             normalize_features (bool): feature normalization 여부
@@ -80,7 +80,7 @@ class FairnessAdapter(nn.Module):
             dropout=dropout
         )
 
-        # Race Classifier (4-class: Asian, Black, White, Other)
+        # Race Classifier (4-class: Asian, White, Black, Other)
         self.race_classifier = nn.Sequential(
             nn.Linear(self.feature_dim, 256),
             nn.ReLU(inplace=True),

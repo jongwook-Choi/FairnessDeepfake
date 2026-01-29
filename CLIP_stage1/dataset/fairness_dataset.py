@@ -3,9 +3,9 @@ Fairness Stage1 데이터셋
 FairFace, UTKFace, CausalFace 데이터셋을 통합하여 CLIP pre-train weight의 Global bias 제거
 
 Subgroup 정의:
-- 인종 (4): Asian(0), Black(1), White(2), Other(3)
+- 인종 (4): Asian(0), White(1), Black(2), Other(3)
 - 성별 (2): Male(0), Female(1)
-- 총 8개 subgroup: (Male,Asian)=0, (Male,Black)=1, ..., (Female,Other)=7
+- 총 8개 subgroup: (Male,Asian)=0, (Male,White)=1, ..., (Female,Other)=7
 
 데이터셋 경로:
 - FairFace: /workspace/datasets/fairface
@@ -25,26 +25,26 @@ import albumentations as A
 from dataset.albu import IsotropicResize, CustomRandomCrop
 
 
-# Race 매핑 (통일된 형식: 0=Asian, 1=Black, 2=White, 3=Other)
+# Race 매핑 (PG-FDD 통일 형식: 0=Asian, 1=White, 2=Black, 3=Other)
 FAIRFACE_RACE_MAP = {
     'East Asian': 0, 'Southeast Asian': 0,  # Asian
-    'Black': 1,                              # Black
-    'White': 2,                              # White
+    'White': 1,                              # White
+    'Black': 2,                              # Black
     'Indian': 3, 'Middle Eastern': 3, 'Latino_Hispanic': 3  # Other
 }
 
 UTKFACE_RACE_MAP = {
     2: 0,  # Asian -> 0
-    1: 1,  # Black -> 1
-    0: 2,  # White -> 2
+    0: 1,  # White -> 1
+    1: 2,  # Black -> 2
     3: 3,  # Indian -> Other
     4: 3,  # Others -> Other
 }
 
 CAUSALFACE_RACE_MAP = {
     'asian': 0,
-    'black': 1,
-    'white': 2,
+    'white': 1,
+    'black': 2,
     'indian': 3,
 }
 
@@ -66,7 +66,7 @@ class FairnessDataset(data.Dataset):
 
     Subgroup 레이블:
         - gender: 0 (Male), 1 (Female)
-        - race: 0 (Asian), 1 (Black), 2 (White), 3 (Other)
+        - race: 0 (Asian), 1 (White), 2 (Black), 3 (Other)
         - subgroup: 0-7 (gender * 4 + race)
     """
 
@@ -88,7 +88,7 @@ class FairnessDataset(data.Dataset):
         # 데이터 리스트
         self.image_list = []
         self.gender_list = []       # 0: Male, 1: Female
-        self.race_list = []         # 0: Asian, 1: Black, 2: White, 3: Other
+        self.race_list = []         # 0: Asian, 1: White, 2: Black, 3: Other
         self.subgroup_list = []     # 0-7
 
         # 데이터 로드
@@ -384,14 +384,13 @@ class FairnessDataset(data.Dataset):
         print(f"  Loaded {count} images from FF++")
 
     def _determine_race_ffpp(self, asian, white, black):
-        """FF++ 데이터셋용 인종 결정"""
-        # 우선순위: Asian > Black > White > Other
+        """FF++ 데이터셋용 인종 결정 (PG-FDD 기준: Asian=0, White=1, Black=2, Other=3)"""
         if asian == 1:
             return 0  # Asian
-        elif black == 1:
-            return 1  # Black
         elif white == 1:
-            return 2  # White
+            return 1  # White
+        elif black == 1:
+            return 2  # Black
         elif asian == -1 and white == -1 and black == -1:
             return 3  # Other
         else:
@@ -402,8 +401,8 @@ class FairnessDataset(data.Dataset):
         print("\n[Subgroup Balanced Sampling]")
 
         subgroup_names = [
-            "(Male, Asian)", "(Male, Black)", "(Male, White)", "(Male, Other)",
-            "(Female, Asian)", "(Female, Black)", "(Female, White)", "(Female, Other)"
+            "(Male, Asian)", "(Male, White)", "(Male, Black)", "(Male, Other)",
+            "(Female, Asian)", "(Female, White)", "(Female, Black)", "(Female, Other)"
         ]
 
         selected_indices = []
@@ -479,8 +478,8 @@ class FairnessDataset(data.Dataset):
         print(f"\n[FairnessDataset] Mode: {self.mode}, Total: {len(self.image_list)} images")
 
         subgroup_names = [
-            "(Male, Asian)", "(Male, Black)", "(Male, White)", "(Male, Other)",
-            "(Female, Asian)", "(Female, Black)", "(Female, White)", "(Female, Other)"
+            "(Male, Asian)", "(Male, White)", "(Male, Black)", "(Male, Other)",
+            "(Female, Asian)", "(Female, White)", "(Female, Black)", "(Female, Other)"
         ]
 
         for sg_id in range(8):

@@ -12,10 +12,10 @@ class RaceLoss(nn.Module):
     """
     Race Classification Loss
 
-    4-class CrossEntropy Loss:
+    4-class CrossEntropy Loss (PG-FDD 기준 순서):
         - Class 0: Asian
-        - Class 1: Black
-        - Class 2: White
+        - Class 1: White
+        - Class 2: Black
         - Class 3: Other
     """
 
@@ -72,7 +72,7 @@ class RaceLoss(nn.Module):
         Returns:
             dict: 클래스별 accuracy
         """
-        race_names = ['Asian', 'Black', 'White', 'Other']
+        race_names = ['Asian', 'White', 'Black', 'Other']
         preds = torch.argmax(race_logits, dim=1)
 
         per_class_acc = {}

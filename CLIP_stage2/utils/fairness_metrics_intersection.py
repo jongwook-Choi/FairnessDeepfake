@@ -189,12 +189,36 @@ def compute_fairness_metrics_intersection(predictions_dict, labels_dict, attribu
             prs = [m['positive_rate'] for m in subgroup_metrics.values()]
             nrs = [m['negative_rate'] for m in subgroup_metrics.values()]
 
-            # Intra-group fairness metrics - 논문 수식대로 구현
-            # F_FPR (Paper formula): 각 그룹의 FPR과 전체 평균 FPR의 차이 절댓값 합계
-            overall_fpr = np.mean(fprs)
-            intra_fairness[f'{group_name}_F_FPR'] = sum([abs(fpr - overall_fpr) for fpr in fprs]) * 100
+            # Intra-group Overall FPR/TPR 계산 (전체 샘플 가중 — PG-FDD 방식)
+            group_all_labels = []
+            group_all_preds = []
+            for key in predictions_dict:
+                if key.startswith(f"{group_name}_") and ',' not in key:
+                    group_all_labels.extend(labels_dict[key])
+                    group_all_preds.extend(predictions_dict[key])
 
-            # F_FPR (Fairness-Generalization method): max-min 방식
+            # Overall FPR/TPR (가중 평균)
+            if len(group_all_labels) > 0:
+                try:
+                    _, _, overall_fpr_weighted, overall_tpr_weighted, _, _, _, _, _, _, _, _ = \
+                        classification_metrics(np.array(group_all_labels), np.array(group_all_preds))
+                except Exception:
+                    overall_fpr_weighted = np.mean(fprs)
+                    overall_tpr_weighted = np.mean(tprs)
+            else:
+                overall_fpr_weighted = np.mean(fprs)
+                overall_tpr_weighted = np.mean(tprs)
+
+            # Intra-group fairness metrics
+            # F_FPR (Mean): 서브그룹 FPR 평균과의 차이 합 (비가중)
+            mean_fpr = np.mean(fprs)
+            intra_fairness[f'{group_name}_F_FPR'] = sum([abs(fpr - mean_fpr) for fpr in fprs]) * 100
+
+            # F_FPR_overall: 전체 샘플 overall FPR과의 차이 합 (가중, PG-FDD 방식)
+            intra_fairness[f'{group_name}_F_FPR_overall'] = \
+                sum([abs(fpr - overall_fpr_weighted) for fpr in fprs]) * 100
+
+            # F_FPR_maxmin: max-min 방식
             intra_fairness[f'{group_name}_F_FPR_maxmin'] = (max(fprs) - min(fprs)) * 100
 
             intra_fairness[f'{group_name}_F_OAE'] = (max(accs) - min(accs)) * 100
@@ -205,6 +229,11 @@ def compute_fairness_metrics_intersection(predictions_dict, labels_dict, attribu
                 max(tnrs) - min(tnrs),
                 max(tprs) - min(tprs)
             ) * 100
+
+            # F_EO: Equalized Odds (PG-FDD 방식) — FPR+TPR 차이 합계
+            intra_fairness[f'{group_name}_F_EO'] = \
+                sum([abs(fpr - overall_fpr_weighted) + abs(tpr - overall_tpr_weighted)
+                     for fpr, tpr in zip(fprs, tprs)]) * 100
 
     # Step 5: Inter-group Fairness 계산 (교차 그룹 간 공정성)
     inter_fairness = {}
@@ -220,12 +249,36 @@ def compute_fairness_metrics_intersection(predictions_dict, labels_dict, attribu
         inter_nrs = [m['negative_rate'] for m in intersection_metrics.values()]
 
         if len(inter_fprs) >= 2:
-            # Inter-group fairness metrics - 논문 수식대로 구현
-            # F_FPR (Paper formula): 각 intersection 그룹의 FPR과 전체 평균 FPR의 차이 절댓값 합계
-            overall_inter_fpr = np.mean(inter_fprs)
-            inter_fairness['inter_F_FPR'] = sum([abs(fpr - overall_inter_fpr) for fpr in inter_fprs]) * 100
+            # Inter-group Overall FPR/TPR 계산 (전체 샘플 가중 — PG-FDD 방식)
+            all_inter_labels = []
+            all_inter_preds = []
+            for key in intersection_metrics:
+                if key in predictions_dict:
+                    all_inter_labels.extend(labels_dict[key])
+                    all_inter_preds.extend(predictions_dict[key])
 
-            # F_FPR (Fairness-Generalization method): max-min 방식
+            if len(all_inter_labels) > 0:
+                try:
+                    _, _, overall_inter_fpr_weighted, overall_inter_tpr_weighted, \
+                        _, _, _, _, _, _, _, _ = \
+                        classification_metrics(np.array(all_inter_labels), np.array(all_inter_preds))
+                except Exception:
+                    overall_inter_fpr_weighted = np.mean(inter_fprs)
+                    overall_inter_tpr_weighted = np.mean(inter_tprs)
+            else:
+                overall_inter_fpr_weighted = np.mean(inter_fprs)
+                overall_inter_tpr_weighted = np.mean(inter_tprs)
+
+            # Inter-group fairness metrics
+            # F_FPR (Mean): 서브그룹 FPR 평균과의 차이 합 (비가중)
+            mean_inter_fpr = np.mean(inter_fprs)
+            inter_fairness['inter_F_FPR'] = sum([abs(fpr - mean_inter_fpr) for fpr in inter_fprs]) * 100
+
+            # F_FPR_overall: 전체 샘플 overall FPR과의 차이 합 (가중, PG-FDD 방식)
+            inter_fairness['inter_F_FPR_overall'] = \
+                sum([abs(fpr - overall_inter_fpr_weighted) for fpr in inter_fprs]) * 100
+
+            # F_FPR_maxmin: max-min 방식
             inter_fairness['inter_F_FPR_maxmin'] = (max(inter_fprs) - min(inter_fprs)) * 100
 
             inter_fairness['inter_F_OAE'] = (max(inter_accs) - min(inter_accs)) * 100
@@ -239,6 +292,11 @@ def compute_fairness_metrics_intersection(predictions_dict, labels_dict, attribu
                 max(inter_tnrs) - min(inter_tnrs),
                 max(inter_tprs) - min(inter_tprs)
             ) * 100
+
+            # F_EO: Equalized Odds (PG-FDD 방식) — FPR+TPR 차이 합계
+            inter_fairness['inter_F_EO'] = \
+                sum([abs(fpr - overall_inter_fpr_weighted) + abs(tpr - overall_inter_tpr_weighted)
+                     for fpr, tpr in zip(inter_fprs, inter_tprs)]) * 100
 
     # Step 6: 추가 메트릭 계산 (F_S, F_A_inter 등)
     overall_fairness = {}
@@ -386,15 +444,17 @@ def print_intersection_fairness_report(results):
         print("-" * 80)
         groups = sorted(set([k.split('_')[0] for k in results['intra_fairness'].keys() if not k.endswith('_maxmin')]))
 
-        print(f"{'Attribute':<12} {'F_FPR(Paper)':>14} {'F_FPR(MaxMin)':>15} {'F_OAE':>10} {'F_DP':>10} {'F_MEO':>10}")
-        print("-" * 80)
+        print(f"{'Attribute':<12} {'F_FPR(Mean)':>13} {'F_FPR(Over)':>13} {'F_FPR(MM)':>12} {'F_OAE':>9} {'F_DP':>9} {'F_MEO':>9} {'F_EO':>9}")
+        print("-" * 100)
         for group in groups:
             f_fpr = results['intra_fairness'].get(f'{group}_F_FPR', 0)
+            f_fpr_ov = results['intra_fairness'].get(f'{group}_F_FPR_overall', 0)
             f_fpr_mm = results['intra_fairness'].get(f'{group}_F_FPR_maxmin', 0)
             f_oae = results['intra_fairness'].get(f'{group}_F_OAE', 0)
             f_dp = results['intra_fairness'].get(f'{group}_F_DP', 0)
             f_meo = results['intra_fairness'].get(f'{group}_F_MEO', 0)
-            print(f"{group.upper():<12} {f_fpr:>13.3f}% {f_fpr_mm:>14.3f}% {f_oae:>9.3f}% {f_dp:>9.3f}% {f_meo:>9.3f}%")
+            f_eo = results['intra_fairness'].get(f'{group}_F_EO', 0)
+            print(f"{group.upper():<12} {f_fpr:>12.3f}% {f_fpr_ov:>12.3f}% {f_fpr_mm:>11.3f}% {f_oae:>8.3f}% {f_dp:>8.3f}% {f_meo:>8.3f}% {f_eo:>8.3f}%")
 
     # Inter-group Fairness
     if 'inter_fairness' in results and results['inter_fairness']:
@@ -404,11 +464,13 @@ def print_intersection_fairness_report(results):
         print(f"{'Metric':<20} {'Value':>12}")
         print("-" * 80)
         if 'inter_F_FPR' in inter:
-            print(f"{'F_FPR (Paper)':<20} {inter['inter_F_FPR']:>11.3f}%")
+            print(f"{'F_FPR (Mean)':<20} {inter['inter_F_FPR']:>11.3f}%")
+        if 'inter_F_FPR_overall' in inter:
+            print(f"{'F_FPR (Overall)':<20} {inter['inter_F_FPR_overall']:>11.3f}%")
         if 'inter_F_FPR_maxmin' in inter:
             print(f"{'F_FPR (MaxMin)':<20} {inter['inter_F_FPR_maxmin']:>11.3f}%")
         for key, value in inter.items():
-            if key not in ['inter_F_FPR', 'inter_F_FPR_maxmin']:
+            if key not in ['inter_F_FPR', 'inter_F_FPR_overall', 'inter_F_FPR_maxmin']:
                 metric_name = key.replace('inter_', 'F_')
                 print(f"{metric_name:<20} {value:>11.3f}%")
 

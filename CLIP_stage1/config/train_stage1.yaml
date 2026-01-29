@@ -8,7 +8,7 @@ model:
   clip_name: "ViT-L/14"              # CLIP 모델 이름
   adapter_hidden_dim: 512            # Adapter hidden 차원
   feature_dim: 768                   # CLIP feature 차원 (ViT-L/14: 768)
-  num_races: 4                       # 인종 클래스 수 (Asian, Black, White, Other)
+  num_races: 4                       # 인종 클래스 수 (Asian, White, Black, Other)
   num_genders: 2                     # 성별 클래스 수 (Male, Female)
   dropout: 0.1                       # Dropout 비율
   normalize_features: true           # Feature normalization 여부

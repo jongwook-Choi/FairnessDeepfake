@@ -10,7 +10,7 @@ Deepfake Detection 모델의 일반화 성능은 유지하며, 공정한 모델�
 - **Subgroup 정의** 
    - 8개 subgroup: (gender × race) = 2 × 4
    - subgroup_id = gender * 4 + race
-   - Race: Asian(0), Black(1), White(2), Other(3)
+   - Race: Asian(0), White(1), Black(2), Other(3)
    - Gender: Male(0), Female(1)
 
 ## Overall Framework 설명

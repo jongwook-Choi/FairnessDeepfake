@@ -62,10 +62,17 @@ def compute_fairness_metrics(predictions, labels, subgroup_ids, attribute_name='
     pos_rates = [m['positive_rate'] for m in subgroup_metrics.values()]
     neg_rates = [m['negative_rate'] for m in subgroup_metrics.values()]
 
+    # Overall FPR/TPR 계산 (전체 샘플 기반, 샘플 수 가중 — PG-FDD 방식)
+    overall_metrics = compute_classification_metrics(labels, predictions)
+    overall_fpr = overall_metrics['fpr']
+    overall_tpr = overall_metrics['tpr']
+
     fairness_results = {
         'subgroup_metrics': subgroup_metrics,
-        # F_FPR: 평균 FPR과의 차이 합
+        # F_FPR (mean): 서브그룹 FPR 평균과의 차이 합 (비가중)
         'F_FPR': sum([abs(fpr - np.mean(fprs)) for fpr in fprs]) * 100,
+        # F_FPR_overall: 전체 샘플 overall FPR과의 차이 합 (가중, PG-FDD 방식)
+        'F_FPR_overall': sum([abs(fpr - overall_fpr) for fpr in fprs]) * 100,
         # F_FPR_maxmin: max-min 방식
         'F_FPR_maxmin': (max(fprs) - min(fprs)) * 100,
         # F_OAE: 정확도 최대-최소 차이
@@ -79,6 +86,9 @@ def compute_fairness_metrics(predictions, labels, subgroup_ids, attribute_name='
             max(tnrs) - min(tnrs),
             max(tprs) - min(tprs)
         ) * 100,
+        # F_EO: Equalized Odds (PG-FDD 방식) — FPR+TPR 차이 합계
+        'F_EO': sum([abs(fpr - overall_fpr) + abs(tpr - overall_tpr)
+                     for fpr, tpr in zip(fprs, tprs)]) * 100,
         # 추가 통계
         'num_subgroups': len(subgroup_metrics),
         'avg_fpr': np.mean(fprs),
@@ -206,11 +216,13 @@ def print_fairness_report(fairness_results, attribute_name='subgroup'):
     # Fairness 메트릭
     print("\nFairness Metrics:")
     print("-" * 60)
-    print(f"F_FPR (Paper):  {fairness_results.get('F_FPR', 0):>8.3f}%")
-    print(f"F_FPR (MaxMin): {fairness_results.get('F_FPR_maxmin', 0):>8.3f}%")
-    print(f"F_OAE:          {fairness_results.get('F_OAE', 0):>8.3f}%")
-    print(f"F_DP:           {fairness_results.get('F_DP', 0):>8.3f}%")
-    print(f"F_MEO:          {fairness_results.get('F_MEO', 0):>8.3f}%")
+    print(f"F_FPR (Mean):    {fairness_results.get('F_FPR', 0):>8.3f}%")
+    print(f"F_FPR (Overall): {fairness_results.get('F_FPR_overall', 0):>8.3f}%")
+    print(f"F_FPR (MaxMin):  {fairness_results.get('F_FPR_maxmin', 0):>8.3f}%")
+    print(f"F_OAE:           {fairness_results.get('F_OAE', 0):>8.3f}%")
+    print(f"F_DP:            {fairness_results.get('F_DP', 0):>8.3f}%")
+    print(f"F_MEO:           {fairness_results.get('F_MEO', 0):>8.3f}%")
+    print(f"F_EO:            {fairness_results.get('F_EO', 0):>8.3f}%")
 
     print("\nOverall Statistics:")
     print(f"Average FPR: {fairness_results.get('avg_fpr', 0):.4f}")
@@ -226,7 +238,7 @@ def compute_gender_race_fairness(predictions, labels, genders, races):
         predictions: Predicted probabilities
         labels: Ground truth labels
         genders: Gender labels (0: Male, 1: Female)
-        races: Race labels (0: Asian, 1: Black, 2: White, 3: Other)
+        races: Race labels (0: Asian, 1: White, 2: Black, 3: Other)
 
     Returns:
         dict: Gender 및 Race 별 Fairness 메트릭

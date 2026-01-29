@@ -48,7 +48,7 @@ class FairnessDataset(data.Dataset):
 
         # Subgroup 정보 리스트 (성별 + 인종)
         self.gender_list = []  # 1: Male, -1: Female
-        self.race_list = []    # 0: Asian, 1: Black, 2: White, 3: Other
+        self.race_list = []    # 0: Asian, 1: White, 2: Black, 3: Other
         self.subgroup_list = []
 
         # CSV 파일에서 데이터 수집
@@ -192,13 +192,13 @@ class FairnessDataset(data.Dataset):
             self.subgroup_list.append(subgroup)
 
     def _determine_race(self, asian, white, black):
-        """인종 분류"""
+        """인종 분류 (PG-FDD CSV 기준 순서: Asian=0, White=1, Black=2, Other=3)"""
         if asian == 1:
             return 0  # Asian
-        elif black == 1:
-            return 1  # Black
         elif white == 1:
-            return 2  # White
+            return 1  # White
+        elif black == 1:
+            return 2  # Black
         elif asian == -1 and white == -1 and black == -1:
             return 3  # Other
         else:
@@ -248,8 +248,8 @@ class FairnessDataset(data.Dataset):
 
         # Subgroup 이름 정의
         subgroup_names = [
-            "(Male, Asian)", "(Male, Black)", "(Male, White)", "(Male, Other)",
-            "(Female, Asian)", "(Female, Black)", "(Female, White)", "(Female, Other)"
+            "(Male, Asian)", "(Male, White)", "(Male, Black)", "(Male, Other)",
+            "(Female, Asian)", "(Female, White)", "(Female, Black)", "(Female, Other)"
         ]
 
         # 1. 각 subgroup별 유효 샘플 수 계산 (Real/Fake 최소값 × 2)
@@ -314,8 +314,8 @@ class FairnessDataset(data.Dataset):
     def _print_subgroup_distribution(self):
         """Subgroup 분포 출력"""
         subgroup_names = [
-            "(Male, Asian)", "(Male, Black)", "(Male, White)", "(Male, Other)",
-            "(Female, Asian)", "(Female, Black)", "(Female, White)", "(Female, Other)"
+            "(Male, Asian)", "(Male, White)", "(Male, Black)", "(Male, Other)",
+            "(Female, Asian)", "(Female, White)", "(Female, Black)", "(Female, Other)"
         ]
 
         print(f"\n[Final Subgroup Distribution] Total: {len(self.subgroup_list)} samples")
@@ -432,7 +432,7 @@ class FairnessDataset(data.Dataset):
             'label': labels,
             'subgroup': subgroups,       # Subgroup ID (0-7, -1 for unknown)
             'gender': genders,           # 1: Male, -1: Female, 0: Unknown
-            'race': races,               # 0: Asian, 1: Black, 2: White, 3: Other, -1: Unknown
+            'race': races,               # 0: Asian, 1: White, 2: Black, 3: Other, -1: Unknown
             'landmark': None,
             'mask': None,
             'xray': None,

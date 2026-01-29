@@ -10,11 +10,11 @@ from collections import defaultdict
 
 
 SUBGROUP_NAMES = [
-    "(Male, Asian)", "(Male, Black)", "(Male, White)", "(Male, Other)",
-    "(Female, Asian)", "(Female, Black)", "(Female, White)", "(Female, Other)"
+    "(Male, Asian)", "(Male, White)", "(Male, Black)", "(Male, Other)",
+    "(Female, Asian)", "(Female, White)", "(Female, Black)", "(Female, Other)"
 ]
 
-RACE_NAMES = ['Asian', 'Black', 'White', 'Other']
+RACE_NAMES = ['Asian', 'White', 'Black', 'Other']
 GENDER_NAMES = ['Male', 'Female']
 
 
