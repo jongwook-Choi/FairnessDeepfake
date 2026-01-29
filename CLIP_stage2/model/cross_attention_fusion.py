@@ -62,8 +62,9 @@ class CrossAttentionFusionWithDynamicGate(nn.Module):
             nn.Sigmoid()
         )
 
-        # 초기화: 초기에 Stage1 더 많이 사용 (sigmoid(1.0) ≈ 0.73)
-        nn.init.constant_(self.gate_net[-2].bias, 1.0)
+        # 초기화: Stage1과 CrossAttn 동등 출발 (sigmoid(0.0) = 0.5)
+        # Exp1/Exp2에서 bias=1.0 → gate 0.96-0.99 포화 문제 해결
+        nn.init.constant_(self.gate_net[-2].bias, 0.0)
 
     def forward(self, stage2_feat, stage1_feat):
         """

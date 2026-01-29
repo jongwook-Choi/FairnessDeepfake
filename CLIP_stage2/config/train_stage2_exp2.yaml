@@ -1,0 +1,147 @@
+# Stage 2 Experiment 2 Configuration
+# Fairness Boost: lambda_fair 10x 증가 + 정규화 강화
+#
+# 실험 1 분석 결과 기반 변경사항:
+# 1. lambda_fair: 0.05 → 0.5 (공정성 loss 10x 증가, 핵심 변경)
+# 2. dropout: 0.1 → 0.2 (과적합 방지 강화)
+# 3. label_smoothing: 0.0 → 0.1 (일반화 성능 개선)
+# 4. weight_decay: 0.01 → 0.05 (L2 정규화 강화)
+# 5. lr: 0.0003 → 0.0002 (강화된 fairness gradient 보상)
+# 6. warmup_epochs: 3 → 2 (초기 degenerate phase 단축)
+# 7. num_epochs: 30 → 25 (후반부 과적합 방지)
+# 8. sinkhorn_blur: 1e-4 → 1e-3 (Sinkhorn 안정화)
+
+# ==================== Model Configuration ====================
+model:
+  clip_name: "ViT-L/14"
+  feature_dim: 768
+
+  # Stage 1 Adapter (Frozen): Global Fairness 보정
+  stage1_hidden_dim: 512
+
+  # Stage 2 Adapter (Trainable): Detection + Local Fairness
+  stage2_hidden_dim: 384
+
+  # Cross-Attention Fusion
+  fusion_num_heads: 8
+
+  # Binary Classifier
+  classifier_hidden_dims: [384, 192]
+  num_classes: 2
+
+  # 기타
+  dropout: 0.2               # 변경: 0.1 → 0.2 (과적합 방지 강화)
+  normalize_features: true
+
+# Stage 1 Checkpoint (Additive Adapter 가중치)
+stage1_checkpoint: "/workspace/code/CLIP_stage1/logs/stage1_2026-01-20-12-31-57/checkpoint_best.pth"
+
+# ==================== Dataset Configuration ====================
+dataset:
+  fairness_root: "/workspace/datasets/fairness"
+  train_dataset: ["ff++"]
+  validation_dataset: ["ff++"]
+  test_dataset: ["celebdf", "dfd", "dfdc"]
+  resolution: 256
+  use_data_augmentation: true
+
+  # Subgroup 균형 샘플링
+  use_balance_sampling: false       # Subgroup 내 Real/Fake 균형 (기존)
+  use_subgroup_balance: false        # Subgroup 간 균형 (Dataset-level)
+  use_subgroup_sampler: true        # Batch-level subgroup 균형
+  skip_unknown_attributes: false
+
+# Data normalization (ImageNet default)
+mean: [0.485, 0.456, 0.406]
+std: [0.229, 0.224, 0.225]
+
+# ==================== Training Configuration ====================
+training:
+  num_epochs: 25              # 변경: 30 → 25 (후반부 과적합 방지)
+  train_batch_size: 256
+  val_batch_size: 64
+  num_workers: 4
+
+# ==================== Optimizer Configuration ====================
+optimizer:
+  type: "adamw"
+  lr: 0.0002                  # 변경: 3e-4 → 2e-4 (fairness gradient 보상)
+  weight_decay: 0.05          # 변경: 0.01 → 0.05 (L2 정규화 강화)
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+
+# ==================== Scheduler Configuration ====================
+scheduler:
+  use_scheduler: true
+  name: "WarmupCosine"
+  T_0: 5
+  T_mult: 2
+  eta_min: 1.0e-6
+
+  # WarmupCosine 옵션
+  warmup_epochs: 2            # 변경: 3 → 2 (초기 degenerate phase 단축)
+
+# ==================== Loss Configuration ====================
+loss:
+  type: "cross_entropy"
+  focal_alpha: 0.25
+  focal_gamma: 2.0
+  label_smoothing: 0.1        # 변경: 0.0 → 0.1 (일반화 성능 개선)
+  class_weights: null
+
+# Fairness Loss Configuration
+fairness_loss:
+  sinkhorn_blur: 1.0e-3       # 변경: 1e-4 → 1e-3 (Sinkhorn 안정화)
+  sinkhorn_p: 2
+  scaling: 0.9
+  min_samples_per_subgroup: 2
+  num_subgroups: 8
+
+# Loss Weighting Configuration
+loss_weighting:
+  type: "fixed"
+  # Dynamic weighting 옵션
+  init_log_var_cls: 0.0
+  init_log_var_fair: 0.0
+  # Fixed weighting 옵션
+  lambda_cls: 1.0
+  lambda_fair: 0.5            # 변경: 0.05 → 0.5 (핵심: 공정성 loss 10x 증가)
+
+# Gradient Clipping
+gradient_clip_max_norm: 1.0
+
+# ==================== Logging Configuration ====================
+logging:
+  log_dir: "/workspace/code/CLIP_stage2/logs"
+  experiment_name: "exp2_fairness_boost"
+  print_freq: 50
+  save_freq: 1
+
+# ==================== Evaluation Configuration ====================
+evaluation:
+  eval_freq: 1
+  save_best_only: true
+  metric_for_best: "auc"
+  test_every_n_epochs: 5
+  test_datasets: ["celebdf", "dfd", "dfdc"]
+
+# ==================== Hardware Configuration ====================
+device: "cuda"
+seed: 42
+deterministic: true
+
+# CLIP weights download path
+clip_download_root: "/data/cuixinjie/weights"
+
+# ==================== Expected Trainable Parameters ====================
+# Component          | Status    | Parameters
+# -------------------|-----------|------------
+# CLIP Encoder       | Frozen    | ~303M
+# Stage 1 Adapter    | Frozen    | ~1.2M
+# Stage 2 Adapter    | Trainable | ~600K
+# Cross-Attn Fusion  | Trainable | ~2.4M
+# Dynamic Gate       | Trainable | ~1K
+# Loss Weighting     | Trainable | 2 params
+# Binary Classifier  | Trainable | ~400K
+# -------------------|-----------|------------
+# Total Trainable    |           | ~3.4M
