@@ -36,6 +36,10 @@ __pycache__/
 # CLAUDE.md 포함
 !CLAUDE.md
 
+# claude_md 폴더 포함
+!claude_md/
+!claude_md/**
+
 # .claude 폴더 포함
 !.claude/
 !.claude/**
