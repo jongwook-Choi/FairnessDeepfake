@@ -35,7 +35,12 @@
       "Bash(git push:*)",
       "Bash(git config:*)",
       "Bash(grep:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(ls:*)",
+      "Bash(head:*)",
+      "Bash(wc:*)",
+      "Bash(pip install:*)",
+      "Bash(du:*)"
     ]
   },
   "outputStyle": "korean-formal-concise"

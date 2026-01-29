@@ -1,10 +1,15 @@
 """
 Combined Loss for CLIP Stage1
-Race Loss + Gender Loss + Fairness Loss 조합
+Race Loss + Gender Loss + Similarity Loss + Fairness Loss 조합
+
+v2: AdversarialFairnessLoss와 함께 사용 가능
+    - use_adversarial=True: AdversarialFairnessLoss 사용 (GRL 기반)
+    - use_adversarial=False: 기존 CombinedLoss 사용 (호환성 유지)
 """
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from .race_loss import RaceLoss
 from .gender_loss import GenderLoss
 from .fairness_loss import FairnessLoss, PairwiseFairnessLoss, MMDFairnessLoss
@@ -195,3 +200,41 @@ class CombinedLoss(nn.Module):
         print(f"[CombinedLoss] Updated weights: "
               f"race={self.lambda_race}, gender={self.lambda_gender}, "
               f"fairness={self.lambda_fairness}, pairwise_fairness={self.lambda_pairwise_fairness}")
+
+
+def create_stage1_loss(config):
+    """
+    Config에 따라 Stage 1 loss 생성
+
+    Args:
+        config (dict): 설정 딕셔너리
+
+    Returns:
+        nn.Module: AdversarialFairnessLoss 또는 CombinedLoss
+    """
+    use_grl = config.get('use_grl', True)
+
+    if use_grl:
+        from .adversarial_fairness_loss import AdversarialFairnessLoss
+        loss_fn = AdversarialFairnessLoss(
+            lambda_race=config.get('lambda_race', 1.0),
+            lambda_gender=config.get('lambda_gender', 0.5),
+            lambda_similarity=config.get('lambda_similarity', 2.0),
+            lambda_fairness=config.get('lambda_fairness', 0.5),
+            lambda_pairwise=config.get('lambda_pairwise', 0.3),
+            sinkhorn_blur=config.get('sinkhorn_blur', 1e-4),
+            label_smoothing=config.get('label_smoothing', 0.0)
+        )
+        print("[create_stage1_loss] AdversarialFairnessLoss (GRL + Sinkhorn) 생성")
+    else:
+        loss_fn = CombinedLoss(
+            lambda_race=config.get('lambda_race', 1.0),
+            lambda_gender=config.get('lambda_gender', 0.1),
+            lambda_fairness=config.get('lambda_fairness', 1e-4),
+            lambda_pairwise_fairness=config.get('lambda_pairwise_fairness', 0.0),
+            sinkhorn_blur=config.get('sinkhorn_blur', 1e-4),
+            label_smoothing=config.get('label_smoothing', 0.0)
+        )
+        print("[create_stage1_loss] CombinedLoss (기존 방식) 생성")
+
+    return loss_fn

@@ -1,5 +1,10 @@
-# CLIP Stage1 Training Configuration
+# CLIP Stage1 Training Configuration (v2 - GRL + Adversarial Debiasing)
 # FairFace, UTKFace, CausalFace를 활용한 CLIP pre-train weight의 Global bias 제거
+#
+# 핵심 변경: GRL(Gradient Reversal Layer) 기반 adversarial debiasing
+# - Classifier의 gradient가 반전되어 adapter가 인구통계 정보를 제거하는 방향으로 학습
+# - Cosine similarity loss로 유용 정보 보존
+# - Best model: cosine_sim - 0.3*race_acc - 0.2*gender_acc
 
 # =============================================================================
 # Model Configuration
@@ -12,7 +17,17 @@ model:
   num_genders: 2                     # 성별 클래스 수 (Male, Female)
   dropout: 0.1                       # Dropout 비율
   normalize_features: true           # Feature normalization 여부
+  use_grl: true                      # GRL 사용 여부 (핵심 변경)
   clip_download_root: "/data/cuixinjie/weights"  # CLIP 가중치 경로
+
+# =============================================================================
+# GRL Configuration (Gradient Reversal Layer)
+# =============================================================================
+grl:
+  initial_lambda: 0.0                # 초기 GRL lambda (학습 초기엔 adversarial 약하게)
+  max_lambda: 1.0                    # 최대 GRL lambda
+  gamma: 10.0                        # DANN sigmoid schedule 가파른 정도
+  schedule: "dann"                   # scheduling 방식: dann, linear, step
 
 # =============================================================================
 # Dataset Configuration
@@ -38,7 +53,7 @@ dataset:
   use_balance_sampling: true         # Subgroup 균형 샘플링 사용 여부
   max_samples_per_subgroup: 0        # 0 = 최소 subgroup 크기 기준, >0 = 지정된 수로 제한
 
-  # CLIP normalization (기본값)
+  # CLIP normalization
   mean: [0.48145466, 0.4578275, 0.40821073]
   std: [0.26862954, 0.26130258, 0.27577711]
 
@@ -46,10 +61,11 @@ dataset:
 # Loss Configuration
 # =============================================================================
 loss:
-  lambda_race: 1.0                   # Race loss 가중치 (유지)
-  lambda_gender: 0.2                 # Gender loss 가중치 (0.01→0.2, 기여도 4.5%)
-  lambda_fairness: 0.5               # Global Fairness loss 가중치 (유지, downstream 중요)
-  lambda_pairwise_fairness: 0.5      # Pairwise Fairness loss 가중치 (유지, downstream 중요)
+  lambda_race: 1.0                   # Race adversarial loss 가중치 (GRL 반전)
+  lambda_gender: 0.5                 # Gender adversarial loss 가중치 (GRL 반전)
+  lambda_similarity: 2.0             # Cosine similarity 보존 loss (신규)
+  lambda_fairness: 0.5               # Global Sinkhorn fairness loss 가중치
+  lambda_pairwise: 0.3               # Pairwise Sinkhorn fairness loss 가중치
   sinkhorn_blur: 0.0001              # Sinkhorn blur 파라미터
   label_smoothing: 0.0               # Label smoothing
 
@@ -57,17 +73,10 @@ loss:
 # Training Configuration
 # =============================================================================
 training:
-  num_epochs: 10                     # 학습 에포크 수
+  num_epochs: 20                     # 학습 에포크 수 (10 -> 20, GRL scheduling 위해)
   batch_size: 64                     # 배치 크기 (8의 배수 권장)
   num_workers: 4                     # DataLoader worker 수
   use_amp: false                     # Mixed precision 사용 여부
-
-  # Best model 선택 점수 가중치
-  # combined_score = w_race*race_acc + w_gender*gender_acc + w_cosine*cosine_sim - w_var*variance_ratio
-  weight_race_acc: 1.0               # Race accuracy 가중치 (높을수록 좋음)
-  weight_gender_acc: 0.1             # Gender accuracy 가중치 (CLIP이 이미 잘 학습함)
-  weight_cosine_sim: 1.0             # Cosine similarity 가중치 (높을수록 좋음, subgroup 방향 정렬)
-  weight_variance_ratio: 0.5         # Variance ratio 가중치 (낮을수록 좋음, subgroup 분포 균등)
 
   # Optimizer
   optimizer:
@@ -79,8 +88,18 @@ training:
   # Scheduler
   scheduler:
     type: "cosine"                   # scheduler 타입 (cosine, step, none)
-    T_max: 10                        # CosineAnnealing T_max
+    T_max: 20                        # CosineAnnealing T_max (num_epochs에 맞춤)
     eta_min: 0.00001                 # CosineAnnealing 최소 lr
+
+# =============================================================================
+# Best Model Selection (v2 - 일관된 기준)
+# =============================================================================
+# score = w_cosine * cosine_sim + w_race_acc * race_acc + w_gender_acc * gender_acc
+# race_acc가 random(25%)에 가까울수록, cosine_sim이 높을수록 좋은 모델
+best_model_selection:
+  w_cosine: 1.0                      # Cosine similarity 가중치 (높을수록 좋음)
+  w_race_acc: -0.3                   # Race accuracy 가중치 (음수: 낮을수록 좋음)
+  w_gender_acc: -0.2                 # Gender accuracy 가중치 (음수: 낮을수록 좋음)
 
 # =============================================================================
 # Logging Configuration

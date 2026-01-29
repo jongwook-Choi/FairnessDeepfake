@@ -1,0 +1,132 @@
+# Stage 2 Training Configuration v2
+# AdaIN + Demographic-Aware Cross-Attention + CVaR/LDAM/Sinkhorn Fairness
+#
+# 핵심 변경:
+# 1. DemographicFusionModule (AdaIN + Multi-View CA + Gate)
+# 2. Config 기반 fairness strategy (CVaR, LDAM, Sinkhorn 조합)
+# 3. Fairness warmup: 초기 5 epoch 없음 -> 10 epoch까지 선형 증가
+# 4. CLIP normalization (Stage 1과 일치)
+
+# ==================== Model Configuration ====================
+model:
+  clip_name: "ViT-L/14"
+  feature_dim: 768
+  stage1_hidden_dim: 512         # Stage 1 Adapter (Frozen)
+  stage2_hidden_dim: 384         # Stage 2 Adapter (Trainable)
+  num_ca_views: 4                # Cross-Attention view 수 (seq_len)
+  num_heads: 8                   # Attention head 수
+  classifier_hidden_dims: [384, 192]
+  num_classes: 2
+  gate_init_bias: 0.0            # sigmoid(0.0) = 0.5 (균등 출발)
+  dropout: 0.1
+  normalize_features: true
+
+# Stage 1 Checkpoint
+stage1_checkpoint: "/workspace/code/CLIP_stage1/logs/stage1_2026-01-20-12-31-57/checkpoint_best.pth"
+
+# ==================== Dataset Configuration ====================
+dataset:
+  fairness_root: "/workspace/datasets/fairness"
+  train_dataset: ["ff++"]
+  validation_dataset: ["ff++"]
+  test_dataset: ["celebdf", "dfd", "dfdc"]
+  resolution: 256
+  use_data_augmentation: true
+  use_balance_sampling: false
+  use_subgroup_balance: false
+  use_subgroup_sampler: true
+  skip_unknown_attributes: false
+
+# CLIP normalization (Stage 1과 일치)
+mean: [0.48145466, 0.4578275, 0.40821073]
+std: [0.26862954, 0.26130258, 0.27577711]
+
+# ==================== Training Configuration ====================
+training:
+  num_epochs: 50
+  train_batch_size: 256
+  val_batch_size: 64
+  num_workers: 4
+
+# ==================== Optimizer Configuration ====================
+optimizer:
+  type: "adamw"
+  lr: 0.0003                     # 3e-4
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+
+# ==================== Scheduler Configuration ====================
+scheduler:
+  use_scheduler: true
+  name: "WarmupCosine"
+  warmup_epochs: 5
+  eta_min: 1.0e-6
+
+# ==================== Loss Configuration ====================
+loss:
+  type: "cross_entropy"
+
+  # Detection loss
+  detection:
+    label_smoothing: 0.1
+
+  # Fairness strategy (config로 개별 on/off)
+  fairness_strategy:
+    use_cvar: true               # Bi-level CVaR (prediction-level)
+    use_ldam: true               # LDAM auxiliary head (subgroup-aware)
+    use_sinkhorn: true           # Per-class Sinkhorn (feature-level)
+
+    cvar:
+      inner_alpha: 0.9           # subgroup 내 worst 10%
+      outer_alpha: 0.5           # subgroup 간 worst 50%
+
+    ldam:
+      lambda_ldam: 0.1           # LDAM loss 가중치
+      max_margin: 0.5            # LDAM margin 상한
+      ldam_s: 30                 # LDAM scaling factor
+      # 8 subgroup 빈도 (PG-FDD 참조)
+      cls_num_list: [2475, 25443, 1468, 4163, 8013, 31281, 1111, 2185]
+
+    sinkhorn:
+      lambda_sinkhorn: 0.1      # Sinkhorn loss 가중치
+      sinkhorn_blur: 1.0e-4
+
+    warmup:
+      warmup_epochs: 5           # 처음 5 epoch: fairness loss = 0
+      warmup_end_epoch: 10       # 5~10 epoch: 선형 증가
+
+  # Disentanglement
+  contrastive:
+    lambda_contrastive: 0.05
+    margin: 3.0
+
+# Gradient Clipping
+gradient_clip: 1.0
+
+# ==================== Best Model Selection ====================
+best_model_selection:
+  w_auc: 1.0
+  w_f_fpr: -0.001
+  w_f_meo: -0.001
+
+# ==================== Logging Configuration ====================
+logging:
+  log_dir: "/workspace/code/CLIP_stage2/logs"
+  experiment_name: "stage2_v2_full"
+  print_freq: 50
+  save_freq: 1
+
+# ==================== Evaluation Configuration ====================
+evaluation:
+  eval_freq: 1
+  save_best_only: true
+  metric_for_best: "auc"
+  test_every_n_epochs: 5
+  test_datasets: ["celebdf", "dfd", "dfdc"]
+
+# ==================== Hardware Configuration ====================
+device: "cuda"
+seed: 42
+deterministic: true
+clip_download_root: "/data/cuixinjie/weights"

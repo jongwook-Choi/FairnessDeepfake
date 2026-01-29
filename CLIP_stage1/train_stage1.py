@@ -52,6 +52,10 @@ def flatten_config(config):
     if 'model' in config:
         flat_config.update(config['model'])
 
+    # GRL config (중첩 유지)
+    if 'grl' in config:
+        flat_config['grl'] = config['grl']
+
     # Dataset config
     if 'dataset' in config:
         flat_config.update(config['dataset'])
@@ -63,6 +67,10 @@ def flatten_config(config):
     # Training config
     if 'training' in config:
         flat_config.update(config['training'])
+
+    # Best model selection config (중첩 유지)
+    if 'best_model_selection' in config:
+        flat_config['best_model_selection'] = config['best_model_selection']
 
     # Logging config
     if 'logging' in config:
@@ -116,6 +124,11 @@ def create_dataloaders(config):
 
 def create_model(config, device):
     """모델 생성"""
+    # GRL 관련 설정
+    use_grl = config.get('use_grl', True)
+    grl_config = config.get('grl', {})
+    initial_lambda_grl = grl_config.get('initial_lambda', 0.0) if use_grl else 0.0
+
     model = FairnessAdapter(
         clip_name=config.get('clip_name', 'ViT-L/14'),
         adapter_hidden_dim=config.get('adapter_hidden_dim', 512),
@@ -124,6 +137,8 @@ def create_model(config, device):
         num_genders=config.get('num_genders', 2),
         dropout=config.get('dropout', 0.1),
         normalize_features=config.get('normalize_features', True),
+        use_grl=use_grl,
+        initial_lambda_grl=initial_lambda_grl,
         device=device,
         clip_download_root=config.get('clip_download_root', '/data/cuixinjie/weights')
     )

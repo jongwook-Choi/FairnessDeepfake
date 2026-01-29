@@ -1,6 +1,9 @@
 """
-Fairness Adapter 모델
-CLIP frozen + Additive Adapter + Race/Gender Classifiers
+Fairness Adapter 모델 (v2 - GRL 통합)
+CLIP frozen + Additive Adapter + GRL + Race/Gender Classifiers
+
+GRL(Gradient Reversal Layer)을 통해 classifier의 gradient가 반전되어
+adapter가 인구통계 정보를 제거하는 방향으로 학습
 """
 
 import torch
@@ -8,22 +11,31 @@ import torch.nn as nn
 import torch.nn.functional as F
 from model.clip.clip import load
 from model.additive_adapter import AdditiveAdapter
+from model.gradient_reversal import GradientReversalLayer
 
 
 class FairnessAdapter(nn.Module):
     """
-    Fairness를 위한 CLIP Adapter 모델
+    Fairness를 위한 CLIP Adapter 모델 (GRL 기반 Adversarial Debiasing)
 
     구조:
-        Input Image → CLIP Visual Encoder (Frozen) → CLIP Feature (768-dim)
-                                                          ↓
-                                                  Additive Adapter (Learnable)
-                                                          ↓
-                                                  Final Feature = CLIP + Additive
-                                                          ↓
-                      ┌───────────────────────────────────┼───────────────────────────────────┐
-                      ↓                                   ↓                                   ↓
-              Race Classifier (4)               Gender Classifier (2)                 Fairness Loss
+        Input Image -> CLIP Visual Encoder (Frozen) -> CLIP Feature (768-dim)
+                                                            |
+                                                    Additive Adapter (Learnable)
+                                                            |
+                                                    debiased_feat = CLIP + Additive
+                                                            |
+                    +-------------------+-------------------+-------------------+
+                    |                   |                   |                   |
+                    v                   v                   v                   v
+              GRL(lambda)        Similarity Loss     Sinkhorn Fairness    Pairwise Sinkhorn
+                    |           cos(clip, debiased)
+              +-----+-----+
+              |           |
+        Race CLF(4)   Gender CLF(2)
+              |           |
+         CE Loss       CE Loss
+    (reversed gradient -> adapter)
     """
 
     def __init__(self,
@@ -34,6 +46,8 @@ class FairnessAdapter(nn.Module):
                  num_genders=2,
                  dropout=0.1,
                  normalize_features=True,
+                 use_grl=True,
+                 initial_lambda_grl=0.0,
                  device='cuda',
                  clip_download_root='/data/cuixinjie/weights'):
         """
@@ -45,6 +59,8 @@ class FairnessAdapter(nn.Module):
             num_genders (int): 성별 클래스 수 (Male, Female = 2)
             dropout (float): dropout 비율
             normalize_features (bool): feature normalization 여부
+            use_grl (bool): GRL 사용 여부 (True: adversarial, False: 기존 방식)
+            initial_lambda_grl (float): GRL 초기 lambda 값
             device (str): device
             clip_download_root (str): CLIP 가중치 다운로드 경로
         """
@@ -53,6 +69,7 @@ class FairnessAdapter(nn.Module):
         self.device = device
         self.normalize_features = normalize_features
         self.feature_dim = feature_dim
+        self.use_grl = use_grl
 
         # CLIP 모델 로드
         self.clip_model, self.preprocess = load(
@@ -79,6 +96,12 @@ class FairnessAdapter(nn.Module):
             output_dim=self.feature_dim,
             dropout=dropout
         )
+
+        # GRL (Gradient Reversal Layer)
+        if self.use_grl:
+            self.grl = GradientReversalLayer(lambda_grl=initial_lambda_grl)
+        else:
+            self.grl = None
 
         # Race Classifier (4-class: Asian, White, Black, Other)
         self.race_classifier = nn.Sequential(
@@ -152,9 +175,10 @@ class FairnessAdapter(nn.Module):
             dict: 예측 결과
                 - 'clip_features': 원본 CLIP features
                 - 'additive_features': Additive adapter 출력
-                - 'final_features': CLIP + Additive features
-                - 'race_logits': Race classification logits
-                - 'gender_logits': Gender classification logits
+                - 'final_features': CLIP + Additive features (debiased)
+                - 'final_features_norm': L2 정규화된 debiased features
+                - 'race_logits': Race classification logits (GRL 통과 후)
+                - 'gender_logits': Gender classification logits (GRL 통과 후)
         """
         images = data_dict['image']
 
@@ -168,7 +192,7 @@ class FairnessAdapter(nn.Module):
         # 3. Additive features 생성
         additive_features = self.additive_adapter(clip_features)
 
-        # 4. Final features = CLIP + Additive
+        # 4. Debiased features = CLIP + Additive
         final_features = clip_features + additive_features
 
         # 5. Feature normalization for final features
@@ -177,9 +201,16 @@ class FairnessAdapter(nn.Module):
         else:
             final_features_norm = final_features
 
-        # 6. Race/Gender classification
-        race_logits = self.race_classifier(final_features_norm)
-        gender_logits = self.gender_classifier(final_features_norm)
+        # 6. Race/Gender classification (GRL 통과)
+        if self.use_grl and self.grl is not None:
+            # GRL: forward는 동일, backward에서 gradient 반전
+            reversed_features = self.grl(final_features_norm)
+            race_logits = self.race_classifier(reversed_features)
+            gender_logits = self.gender_classifier(reversed_features)
+        else:
+            # GRL 없이 직접 분류 (기존 방식)
+            race_logits = self.race_classifier(final_features_norm)
+            gender_logits = self.gender_classifier(final_features_norm)
 
         pred_dict = {
             'clip_features': clip_features,
@@ -193,7 +224,7 @@ class FairnessAdapter(nn.Module):
         return pred_dict
 
     def get_trainable_params(self):
-        """학습 가능한 파라미터만 반환"""
+        """학습 가능한 파라미터만 반환 (Adapter + Classifiers)"""
         params = []
         params.extend(self.additive_adapter.parameters())
         params.extend(self.race_classifier.parameters())
@@ -202,7 +233,7 @@ class FairnessAdapter(nn.Module):
 
     def get_adapter_params(self):
         """Adapter 파라미터만 반환"""
-        return self.additive_adapter.parameters()
+        return list(self.additive_adapter.parameters())
 
     def get_classifier_params(self):
         """Classifier 파라미터만 반환"""
@@ -238,6 +269,7 @@ class FairnessAdapterWithBinaryClassifier(FairnessAdapter):
             num_genders=num_genders,
             dropout=dropout,
             normalize_features=normalize_features,
+            use_grl=False,  # Binary classifier 모드에서는 GRL 사용하지 않음
             device=device,
             clip_download_root=clip_download_root
         )
